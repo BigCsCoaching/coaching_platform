@@ -1,178 +1,114 @@
-# coaching_platform.py
-
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import os
-import json
-from datetime import datetime
 
-# ------------------------------
-# File paths for storing data
-# ------------------------------
-USERS_FILE = "users.json"
-PLANS_FILE = "plans.json"
-PROGRESS_FILE = "progress.json"
+st.set_page_config(page_title="Coaching Dashboard", layout="wide")
 
-# ------------------------------
-# Helper functions
-# ------------------------------
-def load_data(file_path):
-    if os.path.exists(file_path):
-        with open(file_path, "r") as f:
-            return json.load(f)
-    return {}
+# --- Sidebar Navigation ---
+page = st.sidebar.radio("Navigate", ["🏠 Home", "🧑‍💼 Clients", "🏋️ Workouts", "🍎 Nutrition", "📊 Progress"])
 
-def save_data(file_path, data):
-    with open(file_path, "w") as f:
-        json.dump(data, f, indent=4)
+# --- Home Page ---
+if page == "🏠 Home":
+    st.title("🏋️ Coaching Platform")
+    st.write("Welcome to your all-in-one coaching dashboard!")
+    st.info("Use the sidebar to manage clients, create workout and nutrition plans, and track progress.")
 
-# ------------------------------
-# User Authentication
-# ------------------------------
-def register_user(username, password, role):
-    users = load_data(USERS_FILE)
-    if username in users:
-        st.error("Username already exists.")
-    else:
-        users[username] = {"password": password, "role": role}
-        save_data(USERS_FILE, users)
-        st.success(f"{role.capitalize()} registered successfully!")
+# --- Clients Page ---
+elif page == "🧑‍💼 Clients":
+    st.title("Client Management")
 
-def login_user(username, password):
-    users = load_data(USERS_FILE)
-    if username in users and users[username]["password"] == password:
-        return users[username]["role"]
-    else:
-        st.error("Invalid username or password.")
-        return None
+    if "clients" not in st.session_state:
+        st.session_state.clients = []
 
-# ------------------------------
-# Plan Management
-# ------------------------------
-def create_plan(client, plan_name, exercises):
-    plans = load_data(PLANS_FILE)
-    if client not in plans:
-        plans[client] = []
-    plans[client].append({"plan_name": plan_name, "exercises": exercises})
-    save_data(PLANS_FILE, plans)
-    st.success(f"Plan '{plan_name}' added for {client}.")
+    with st.form("add_client"):
+        name = st.text_input("Client Name")
+        goal = st.text_input("Client Goal")
+        submitted = st.form_submit_button("Add Client")
+        if submitted and name:
+            st.session_state.clients.append({"name": name, "goal": goal})
+            st.success(f"Added {name}")
 
-def view_plans(client):
-    plans = load_data(PLANS_FILE)
-    if client in plans and plans[client]:
-        for idx, plan in enumerate(plans[client], start=1):
-            with st.expander(f"Plan {idx}: {plan['plan_name']}"):
-                for ex in plan["exercises"]:
-                    st.write(f"- {ex}")
-    else:
-        st.info("No plans found.")
+    if st.session_state.clients:
+        st.subheader("Your Clients")
+        st.table(pd.DataFrame(st.session_state.clients))
 
-# ------------------------------
-# Progress Tracking
-# ------------------------------
-def log_progress(client, metric, value):
-    progress = load_data(PROGRESS_FILE)
-    if client not in progress:
-        progress[client] = []
-    progress[client].append({"metric": metric, "value": value, "date": str(datetime.now().date())})
-    save_data(PROGRESS_FILE, progress)
-    st.success(f"Logged {metric} = {value} for {client}.")
+# --- Workouts Page ---
+elif page == "🏋️ Workouts":
+    st.title("Workout Planner")
 
-def show_progress(client):
-    progress = load_data(PROGRESS_FILE)
-    if client not in progress or not progress[client]:
-        st.info("No progress data yet.")
-        return
+    if "workouts" not in st.session_state:
+        st.session_state.workouts = []
 
-    df = pd.DataFrame(progress[client])
-    df['date'] = pd.to_datetime(df['date'])
-    st.dataframe(df)
+    with st.form("add_workout"):
+        exercise = st.text_input("Exercise")
+        sets = st.number_input("Sets", 1, 10, 3)
+        reps = st.number_input("Reps", 1, 20, 10)
+        weight = st.number_input("Weight (kg)", 0, 500, 60)
+        add_workout = st.form_submit_button("Add Exercise")
 
-    # Plot all metrics in one chart
-    plt.figure(figsize=(8, 4))
-    metrics = df['metric'].unique()
-    for m in metrics:
-        metric_df = df[df['metric'] == m]
-        plt.plot(metric_df['date'], metric_df['value'], marker='o', label=m)
-    plt.xlabel("Date")
-    plt.ylabel("Value")
-    plt.title(f"Progress for {client}")
-    plt.legend()
-    st.pyplot(plt)
-    plt.clf()
+        if add_workout and exercise:
+            st.session_state.workouts.append({
+                "exercise": exercise,
+                "sets": sets,
+                "reps": reps,
+                "weight": weight
+            })
+            st.success(f"Added {exercise}")
 
-# ------------------------------
-# Streamlit App
-# ------------------------------
-st.set_page_config(page_title="Coaching Platform", layout="wide")
-st.title("💪 Coaching Platform")
+    if st.session_state.workouts:
+        df = pd.DataFrame(st.session_state.workouts)
+        st.subheader("Workout Plan")
+        st.table(df)
 
-menu = ["Home", "Register", "Login"]
-choice = st.sidebar.selectbox("Menu", menu)
+# --- Nutrition Page ---
+elif page == "🍎 Nutrition":
+    st.title("Nutrition Planner")
 
-if choice == "Home":
-    st.subheader("Welcome to the Coaching Platform")
-    st.write("Use the sidebar to Register or Login.")
+    if "nutrition" not in st.session_state:
+        st.session_state.nutrition = []
 
-elif choice == "Register":
-    st.subheader("Register New User")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    role = st.selectbox("Role", ["coach", "client"])
-    if st.button("Register"):
-        register_user(username, password, role)
+    with st.form("add_meal"):
+        meal = st.text_input("Meal / Food Item")
+        calories = st.number_input("Calories", 0, 2000, 400)
+        protein = st.number_input("Protein (g)", 0, 200, 20)
+        carbs = st.number_input("Carbs (g)", 0, 200, 40)
+        fats = st.number_input("Fats (g)", 0, 100, 10)
+        add_meal = st.form_submit_button("Add Meal")
 
-elif choice == "Login":
-    st.subheader("Login")
-    username = st.text_input("Username", key="login_user")
-    password = st.text_input("Password", type="password", key="login_pass")
-    if st.button("Login"):
-        role = login_user(username, password)
-        if role:
-            st.success(f"Logged in as {role}")
+        if add_meal and meal:
+            st.session_state.nutrition.append({
+                "meal": meal,
+                "calories": calories,
+                "protein": protein,
+                "carbs": carbs,
+                "fats": fats
+            })
+            st.success(f"Added {meal}")
 
-            if role == "coach":
-                st.subheader("Coach Dashboard")
-                coach_menu = ["Create Plan", "View Client Plans", "View All Clients Progress"]
-                coach_choice = st.selectbox("Coach Menu", coach_menu)
+    if st.session_state.nutrition:
+        df = pd.DataFrame(st.session_state.nutrition)
+        st.subheader("Daily Nutrition")
+        st.table(df)
+        total_calories = df["calories"].sum()
+        st.metric("Total Daily Calories", f"{total_calories} kcal")
 
-                if coach_choice == "Create Plan":
-                    client_name = st.text_input("Client Username")
-                    plan_name = st.text_input("Plan Name")
-                    exercises = st.text_area("Exercises (comma-separated)").split(",")
-                    if st.button("Add Plan"):
-                        exercises = [ex.strip() for ex in exercises if ex.strip()]
-                        create_plan(client_name, plan_name, exercises)
+# --- Progress Page ---
+elif page == "📊 Progress":
+    st.title("Progress Tracker")
 
-                elif coach_choice == "View Client Plans":
-                    client_name = st.text_input("Client Username to View")
-                    if st.button("Show Plans"):
-                        view_plans(client_name)
+    if "progress" not in st.session_state:
+        st.session_state.progress = []
 
-                elif coach_choice == "View All Clients Progress":
-                    progress_data = load_data(PROGRESS_FILE)
-                    if progress_data:
-                        client_list = list(progress_data.keys())
-                        selected_client = st.selectbox("Select Client", client_list)
-                        if st.button("Show Progress"):
-                            show_progress(selected_client)
-                    else:
-                        st.info("No progress data yet.")
+    with st.form("add_progress"):
+        date = st.date_input("Date")
+        weight = st.number_input("Weight (kg)", 0, 300, 70)
+        add_progress = st.form_submit_button("Add Entry")
 
-            elif role == "client":
-                st.subheader("Client Dashboard")
-                client_menu = ["View Plans", "Log Progress", "View Progress"]
-                client_choice = st.selectbox("Client Menu", client_menu)
+        if add_progress:
+            st.session_state.progress.append({"date": date, "weight": weight})
+            st.success("Progress added!")
 
-                if client_choice == "View Plans":
-                    view_plans(username)
-
-                elif client_choice == "Log Progress":
-                    metric = st.text_input("Metric (e.g., weight, bench press)")
-                    value = st.number_input("Value", min_value=0.0)
-                    if st.button("Log Progress"):
-                        log_progress(username, metric, value)
-
-                elif client_choice == "View Progress":
-                    show_progress(username)
+    if st.session_state.progress:
+        df = pd.DataFrame(st.session_state.progress)
+        st.line_chart(df.set_index("date")["weight"])
+        st.table(df)
