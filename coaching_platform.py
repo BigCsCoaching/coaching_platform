@@ -5,8 +5,8 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import os, json
 from datetime import datetime, date
+import os, json
 from dateutil import parser
 
 # Optional Google Sheets support
@@ -23,25 +23,11 @@ except Exception:
 # ---------------------------
 APP_TITLE = "BigC's Coaching"
 APP_SUBTITLE = "@callumjules"
-DEFAULT_ADMIN_PASS = "bigc_admin_pass"  # Change for production
-ADMIN_SECRET_KEY = "ADMIN_PASS"         # Key in st.secrets
+DEFAULT_ADMIN_PASS = "bigc_admin_pass"
+ADMIN_SECRET_KEY = "ADMIN_PASS"
 GSHEET_NAME = "BigC Coaching Data"
 
 st.set_page_config(page_title=APP_TITLE, page_icon="💪", layout="wide")
-
-st.markdown(
-    """
-    <style>
-        .stApp { background-color: #0e1117; color: white; }
-        section[data-testid="stSidebar"] { background-color: #111827; }
-        h1, h2, h3, h4 { color: #2E86C1 !important; font-weight: 800; }
-        p, li, div, label { color: #d1d5db !important; }
-        .main-title { text-align: center; font-size: 48px; color: #2E86C1; font-weight: 900; margin-bottom: 0; }
-        .subtitle { text-align: center; font-size: 18px; color: #888; margin-top: 5px; margin-bottom: 30px; }
-        .info-box { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 16px; margin-top: 10px; }
-    </style>
-    """, unsafe_allow_html=True
-)
 
 # ---------------------------
 # Google Sheets Helpers
@@ -49,7 +35,6 @@ st.markdown(
 def gs_auth():
     if not USE_GOOGLE:
         raise RuntimeError("gspread or oauth2client not installed.")
-    # 1) st.secrets
     if "gcp_service_account" in st.secrets:
         raw = st.secrets["gcp_service_account"]
         creds_json = json.loads(raw)
@@ -57,7 +42,6 @@ def gs_auth():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, scope)
         client = gspread.authorize(creds)
         return client
-    # 2) local service_account.json
     if os.path.exists("service_account.json"):
         scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", scope)
@@ -71,7 +55,6 @@ def ensure_sheets_structure(gc):
         sh = gc.open(GSHEET_NAME)
     except gspread.SpreadsheetNotFound:
         sh = gc.create(GSHEET_NAME)
-    # Ensure worksheets
     ws_list = {
         "coaches": ["Username","Password"],
         "clients": ["Name","AssignedCoach","Username","Password","Goal"],
@@ -98,7 +81,7 @@ def append_row(sh, sheet_name, row_values):
     ws.append_row(row_values)
 
 # ---------------------------
-# Session storage fallback
+# Local fallback storage
 # ---------------------------
 def init_local_storage():
     for key in ["local_coaches","local_clients","local_workouts","local_nutrition","local_progress","local_checkins"]:
@@ -106,11 +89,12 @@ def init_local_storage():
             st.session_state[key] = []
 
 # ---------------------------
-# Session state
+# Session state defaults
 # ---------------------------
 if "role" not in st.session_state: st.session_state.role = None
 if "user" not in st.session_state: st.session_state.user = None
 if "admin" not in st.session_state: st.session_state.admin = False
+if "rerun_flag" not in st.session_state: st.session_state.rerun_flag = False
 
 # ---------------------------
 # Google Sheets connection
@@ -127,19 +111,19 @@ if not gs_ok:
     init_local_storage()
 
 # ---------------------------
-# Header
+# Header (Old UI style)
 # ---------------------------
-st.markdown(f"<h1 class='main-title'>{APP_TITLE}</h1>", unsafe_allow_html=True)
-st.markdown(f"<p class='subtitle'>{APP_SUBTITLE}</p>", unsafe_allow_html=True)
+st.title(APP_TITLE)
+st.markdown(f"*{APP_SUBTITLE}*")
 if not gs_ok:
     st.warning("Google Sheets not connected — using local storage. Reason: "+(google_error or "unknown"))
 
 # ---------------------------
-# Sidebar login
+# Sidebar Login
 # ---------------------------
 with st.sidebar:
-    st.markdown("### Access")
-    role_choice = st.radio("Enter as:", ["Admin","Coach","Client"], index=1)
+    st.header("Login")
+    role_choice = st.radio("Role:", ["Admin","Coach","Client"])
     username_input = st.text_input("Username")
     password_input = st.text_input("Password", type="password")
     if st.button("Login"):
@@ -153,14 +137,10 @@ with st.sidebar:
             else:
                 st.error("Wrong admin password")
         else:
-            # Coach or Client
             if gs_ok:
                 sheet_name = "coaches" if role_choice=="Coach" else "clients"
                 df = read_sheet(gsh,sheet_name)
-                if role_choice=="Coach":
-                    user_row = df[(df["Username"]==username_input)&(df["Password"]==password_input)]
-                else:
-                    user_row = df[(df["Username"]==username_input)&(df["Password"]==password_input)]
+                user_row = df[(df["Username"]==username_input)&(df["Password"]==password_input)]
                 if not user_row.empty:
                     st.session_state.role = role_choice.lower()
                     st.session_state.user = username_input
@@ -168,11 +148,11 @@ with st.sidebar:
                 else:
                     st.error("Invalid credentials")
             else:
-                st.error("Google Sheets not connected; login disabled in local mode")
+                st.error("Google Sheets not connected; login disabled")
 st.stop() if st.session_state.role is None else None
 
 # ---------------------------
-# Load data helpers
+# Data helpers
 # ---------------------------
 def get_clients_for_coach(coach_username):
     if gs_ok:
@@ -200,7 +180,7 @@ def get_client_data(client_username):
 # Admin Dashboard
 # ---------------------------
 if st.session_state.admin:
-    st.markdown("## Admin Dashboard 🔐")
+    st.header("Admin Dashboard 🔐")
     sheets = ["coaches","clients","workouts","nutrition","progress","checkins"]
     for s in sheets:
         st.subheader(s.capitalize())
@@ -223,7 +203,7 @@ if st.session_state.admin:
 # ---------------------------
 elif st.session_state.role=="coach":
     coach_user = st.session_state.user
-    st.markdown(f"## Welcome Coach {coach_user} 👋")
+    st.header(f"Welcome Coach {coach_user} 👋")
     clients = get_clients_for_coach(coach_user)
     if not clients:
         st.info("No clients assigned yet")
@@ -234,21 +214,22 @@ elif st.session_state.role=="coach":
     data = get_client_data(client_username)
     tab_w,tab_n,tab_p,tab_c = st.tabs(["🏋️ Workouts","🍎 Nutrition","📈 Progress","📋 Weekly Check-In"])
 
+    # Workouts tab
     with tab_w:
         st.subheader("Workouts")
-        with st.form("workout_entry"):
+        with st.form("workout_form"):
             workout_name = st.text_input("Workout name")
             workout_details = st.text_area("Details")
             if st.form_submit_button("Save Workout"):
                 ts = datetime.utcnow().isoformat()
                 append_row(gsh,"workouts",[client_username, workout_name, workout_details, ts])
-                st.success("Saved"); st.experimental_rerun()
-        if data["workouts"]:
-            st.dataframe(pd.DataFrame(data["workouts"]))
+                st.success("Workout saved")
+                st.session_state.rerun_flag = True
 
+    # Nutrition tab
     with tab_n:
         st.subheader("Nutrition")
-        with st.form("nutrition_entry"):
+        with st.form("nutrition_form"):
             cals = st.number_input("Calories",0)
             prot = st.number_input("Protein",0)
             carbs = st.number_input("Carbs",0)
@@ -256,27 +237,23 @@ elif st.session_state.role=="coach":
             if st.form_submit_button("Save Nutrition"):
                 ts = datetime.utcnow().isoformat()
                 append_row(gsh,"nutrition",[client_username,cals,prot,carbs,fats,ts])
-                st.success("Saved"); st.experimental_rerun()
-        if data["nutrition"]:
-            st.dataframe(pd.DataFrame(data["nutrition"]))
+                st.success("Nutrition saved")
+                st.session_state.rerun_flag = True
 
+    # Progress tab
     with tab_p:
         st.subheader("Progress")
-        with st.form("progress_entry"):
+        with st.form("progress_form"):
             pdate = st.date_input("Date")
             pweight = st.number_input("Weight",0.0)
             pnotes = st.text_area("Notes")
             if st.form_submit_button("Save Progress"):
                 ts = datetime.utcnow().isoformat()
                 append_row(gsh,"progress",[client_username,str(pdate),pweight,pnotes,ts])
-                st.success("Saved"); st.experimental_rerun()
-        if data["progress"]:
-            pdf = pd.DataFrame(data["progress"])
-            st.dataframe(pdf)
-            if "Weight" in pdf.columns and "Date" in pdf.columns:
-                try: st.line_chart(pdf.set_index("Date")["Weight"])
-                except: pass
+                st.success("Progress saved")
+                st.session_state.rerun_flag = True
 
+    # Weekly Check-In tab
     with tab_c:
         st.subheader("Weekly Check-In")
         if data["checkins"]:
@@ -287,7 +264,7 @@ elif st.session_state.role=="coach":
 # ---------------------------
 elif st.session_state.role=="client":
     client_user = st.session_state.user
-    st.markdown(f"## Welcome {client_user} 👋")
+    st.header(f"Welcome {client_user} 👋")
     data = get_client_data(client_user)
     tab_w,tab_n,tab_p,tab_c = st.tabs(["🏋️ Workouts","🍎 Nutrition","📈 Progress","📋 Weekly Check-In"])
 
@@ -315,12 +292,20 @@ elif st.session_state.role=="client":
 
     with tab_c:
         st.subheader("Weekly Check-In")
-        with st.form("client_checkin"):
+        with st.form("client_checkin_form"):
             week_start = st.date_input("Week Starting")
             feedback = st.text_area("Your weekly feedback / notes")
             if st.form_submit_button("Submit Check-In"):
                 ts = datetime.utcnow().isoformat()
                 append_row(gsh,"checkins",[client_user,str(week_start),feedback,"Submitted",ts])
-                st.success("Check-in submitted!"); st.experimental_rerun()
+                st.success("Check-in submitted!")
+                st.session_state.rerun_flag = True
         if data["checkins"]:
             st.dataframe(pd.DataFrame(data["checkins"]))
+
+# ---------------------------
+# Handle safe rerun
+# ---------------------------
+if st.session_state.get("rerun_flag"):
+    st.session_state.rerun_flag = False
+    st.experimental_rerun()
