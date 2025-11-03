@@ -1,9 +1,7 @@
 streamlit
 pandas
 matplotlib
-typing_extensions
-protobuf
-cachetools
-click
-tornado
-toml
+gspread
+gspread-dataframe
+oauth2client
+python-dateutil
