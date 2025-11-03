@@ -1,5 +1,5 @@
 # ultimate_coaching_dashboard.py
-# BigC's Coaching - Complete web-based dashboard with filters
+# BigC's Coaching - Complete web-based dashboard with filters, client creation, and self-signup
 # Packages: streamlit, pandas, matplotlib, gspread, gspread-dataframe, oauth2client, python-dateutil
 
 import streamlit as st
@@ -116,6 +116,52 @@ if not gs_ok:
     st.warning(f"Google Sheets not connected — using local storage. Reason: {google_error or 'unknown'}")
 
 # ---------------------------
+# Client Signup (if not logged in)
+# ---------------------------
+if st.session_state.role is None:
+    st.sidebar.subheader("New Client Signup")
+    signup_name = st.sidebar.text_input("Full Name")
+    signup_username = st.sidebar.text_input("Username")
+    signup_password = st.sidebar.text_input("Password", type="password")
+    signup_goal = st.sidebar.text_input("Goal / Focus")
+    
+    # Checklist example
+    st.sidebar.markdown("**Pre-Signup Checklist**")
+    c1 = st.sidebar.checkbox("I have completed a health assessment")
+    c2 = st.sidebar.checkbox("I have no injuries preventing training")
+    c3 = st.sidebar.checkbox("I agree to the coaching terms")
+
+    # Assign coach selection
+    if gs_ok:
+        try:
+            coaches_df = read_sheet(gsh,"coaches")
+            coach_list = list(coaches_df["Username"].unique())
+        except:
+            coach_list = ["coach1"]
+    else:
+        coach_list = [c["Username"] for c in st.session_state.local_coaches] or ["coach1"]
+    signup_coach = st.sidebar.selectbox("Select your coach", coach_list)
+
+    if st.sidebar.button("Sign Up"):
+        if not (signup_name and signup_username and signup_password):
+            st.sidebar.warning("Please fill in all fields")
+        elif not (c1 and c2 and c3):
+            st.sidebar.warning("Please complete the checklist")
+        else:
+            row = [signup_name, signup_coach, signup_username, signup_password, signup_goal]
+            if gs_ok:
+                append_row(gsh,"clients",row)
+            else:
+                st.session_state.local_clients.append({
+                    "Name":signup_name,
+                    "AssignedCoach":signup_coach,
+                    "Username":signup_username,
+                    "Password":signup_password,
+                    "Goal":signup_goal
+                })
+            st.sidebar.success(f"Client {signup_name} registered! You can now log in.")
+
+# ---------------------------
 # Sidebar Login
 # ---------------------------
 with st.sidebar:
@@ -125,7 +171,7 @@ with st.sidebar:
     password_input = st.text_input("Password", type="password")
     if st.button("Login"):
         if role_choice=="Admin":
-            admin_pass = st.secrets.get(ADMIN_SECRET_KEY, DEFAULT_ADMIN_PASS) if hasattr(st, "secrets") else DEFAULT_ADMIN_PASS
+            admin_pass = st.secrets.get("ADMIN_PASS", "bigc_admin_pass") if hasattr(st, "secrets") else "bigc_admin_pass"
             if password_input==admin_pass:
                 st.session_state.role="admin"
                 st.session_state.user="admin"
@@ -208,68 +254,95 @@ def apply_filters(entries, start_date=None, end_date=None, workout=None):
             continue
         filtered.append(e)
     return filtered
+# ---------------------------
+# Admin Dashboard
+# ---------------------------
+if st.session_state.role=="admin":
+    st.header("Admin Dashboard")
+    
+    tabs = st.tabs(["Coaches","Clients","Workouts","Nutrition","Progress","Check-Ins"])
+    data_tabs = ["coaches","clients","workouts","nutrition","progress","checkins"]
+    
+    for tab_obj, sheet_name in zip(tabs, data_tabs):
+        with tab_obj:
+            st.subheader(sheet_name.capitalize())
+            if gs_ok:
+                try:
+                    df = read_sheet(gsh,sheet_name)
+                    st.dataframe(df)
+                    if st.button(f"Export {sheet_name} CSV"):
+                        df.to_csv(f"{sheet_name}.csv", index=False)
+                        st.success(f"{sheet_name}.csv saved locally")
+                except Exception as e:
+                    st.error(f"Failed to read {sheet_name}: {e}")
+            else:
+                df = pd.DataFrame(st.session_state[f"local_{sheet_name}"])
+                st.dataframe(df)
 
 # ---------------------------
-# Dashboards
+# Coach Dashboard
 # ---------------------------
-# Admin
-if st.session_state.admin:
-    st.header("Admin Dashboard 🔐")
-    sheets = ["coaches","clients","workouts","nutrition","progress","checkins"]
-    for s in sheets:
-        st.subheader(s.capitalize())
-        try: df = read_sheet(gsh, s)
-        except: df = pd.DataFrame()
-        if df.empty:
-            st.info("No records")
-        else:
-            st.dataframe(df)
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button(f"Download {s}.csv", csv, file_name=f"{s}.csv", mime="text/csv")
-
-# Coach
 elif st.session_state.role=="coach":
     coach_user = st.session_state.user
-    st.header(f"Welcome Coach {coach_user} 👋")
+    st.header(f"Coach Dashboard: {coach_user}")
+    
+    # Sidebar filters
+    st.sidebar.subheader("Filters")
+    min_date = st.sidebar.date_input("Start Date", date.today()-timedelta(days=30))
+    max_date = st.sidebar.date_input("End Date", date.today())
+    
+    # Add New Client section
+    st.sidebar.subheader("Add New Client")
+    new_client_name = st.sidebar.text_input("Client Name")
+    new_client_username = st.sidebar.text_input("Client Username")
+    new_client_password = st.sidebar.text_input("Client Password", type="password")
+    new_client_goal = st.sidebar.text_input("Goal / Focus")
+    
+    if st.sidebar.button("Add Client"):
+        if new_client_name and new_client_username and new_client_password:
+            row = [new_client_name, coach_user, new_client_username, new_client_password, new_client_goal]
+            if gs_ok:
+                append_row(gsh,"clients",row)
+            else:
+                st.session_state.local_clients.append({
+                    "Name":new_client_name,
+                    "AssignedCoach":coach_user,
+                    "Username":new_client_username,
+                    "Password":new_client_password,
+                    "Goal":new_client_goal
+                })
+            st.success(f"Client {new_client_name} added!")
+            st.session_state.rerun_flag = True
+        else:
+            st.warning("Please fill in all fields to add a client")
+
+    # Select client to view
     clients = get_clients_for_coach(coach_user)
-    if not clients:
-        st.info("No clients assigned yet")
-    else:
-        client_names = [c["Name"] for c in clients]
-        selected_client = st.selectbox("Select client", client_names)
-        client_username = next(c["Username"] for c in clients if c["Name"]==selected_client)
-        data = get_client_data(client_username)
+    client_usernames = [c["Username"] for c in clients]
+    if client_usernames:
+        selected_client = st.selectbox("Select Client", client_usernames)
+        data = get_client_data(selected_client)
 
-        # Filters
-        st.subheader("Filters")
-        min_date = st.date_input("Start Date", date.today()-timedelta(days=30))
-        max_date = st.date_input("End Date", date.today())
-        workouts_list = list(set([w["Workout"] for w in data["workouts"]])) if data["workouts"] else []
-        selected_workout = st.selectbox("Workout Filter", ["All"] + workouts_list)
-
-        filtered_workouts = apply_filters(data["workouts"], min_date, max_date, selected_workout)
-        filtered_nutrition = apply_filters(data["nutrition"], min_date, max_date)
-        filtered_progress = apply_filters(data["progress"], min_date, max_date)
-        filtered_checkins = apply_filters(data["checkins"], min_date, max_date)
-
+        # Tabs
         tab_w, tab_n, tab_p, tab_c = st.tabs(["🏋️ Workouts","🍎 Nutrition","📈 Progress","📋 Weekly Check-In"])
 
         with tab_w:
             st.subheader("Workouts")
-            if filtered_workouts:
-                st.dataframe(pd.DataFrame(filtered_workouts))
+            filtered = apply_filters(data["workouts"], min_date, max_date)
+            if filtered: st.dataframe(pd.DataFrame(filtered))
             else: st.info("No workouts for selected filters")
 
         with tab_n:
             st.subheader("Nutrition")
-            if filtered_nutrition:
-                st.dataframe(pd.DataFrame(filtered_nutrition))
+            filtered = apply_filters(data["nutrition"], min_date, max_date)
+            if filtered: st.dataframe(pd.DataFrame(filtered))
             else: st.info("No nutrition for selected filters")
 
         with tab_p:
             st.subheader("Progress")
-            if filtered_progress:
-                df_prog = pd.DataFrame(filtered_progress)
+            filtered = apply_filters(data["progress"], min_date, max_date)
+            if filtered:
+                df_prog = pd.DataFrame(filtered)
                 st.dataframe(df_prog)
                 if "Weight" in df_prog.columns and "Date" in df_prog.columns:
                     try: st.line_chart(df_prog.set_index("Date")["Weight"])
@@ -278,10 +351,13 @@ elif st.session_state.role=="coach":
 
         with tab_c:
             st.subheader("Weekly Check-In")
-            if filtered_checkins:
-                st.dataframe(pd.DataFrame(filtered_checkins))
+            filtered = apply_filters(data["checkins"], min_date, max_date)
+            if filtered: st.dataframe(pd.DataFrame(filtered))
+            else: st.info("No check-ins yet")
 
-# Client
+# ---------------------------
+# Client Dashboard
+# ---------------------------
 elif st.session_state.role=="client":
     client_user = st.session_state.user
     st.header(f"Welcome {client_user} 👋")
@@ -291,7 +367,7 @@ elif st.session_state.role=="client":
     st.subheader("Filters")
     min_date = st.date_input("Start Date", date.today()-timedelta(days=30))
     max_date = st.date_input("End Date", date.today())
-    workouts_list = list(set([w["Workout"] for w in data["workouts"]])) if data["workouts"] else []
+    workouts_list = list(set([w.get("Workout") for w in data["workouts"]])) if data["workouts"] else []
     selected_workout = st.selectbox("Workout Filter", ["All"] + workouts_list)
 
     filtered_workouts = apply_filters(data["workouts"], min_date, max_date, selected_workout)
@@ -330,12 +406,25 @@ elif st.session_state.role=="client":
             feedback = st.text_area("Your weekly feedback / notes")
             if st.form_submit_button("Submit Check-In"):
                 ts = datetime.utcnow().isoformat()
-                append_row(gsh,"checkins",[client_user,str(week_start),feedback,"Submitted",ts])
+                if gs_ok:
+                    append_row(gsh,"checkins",[client_user,str(week_start),feedback,"Submitted",ts])
+                else:
+                    st.session_state.local_checkins.append({
+                        "ClientUsername":client_user,
+                        "WeekStartDate":str(week_start),
+                        "Feedback":feedback,
+                        "Submitted":"Submitted",
+                        "Timestamp":ts
+                    })
                 st.success("Check-in submitted!")
                 st.session_state.rerun_flag = True
+
         if filtered_checkins:
             st.dataframe(pd.DataFrame(filtered_checkins))
 
-# Safe rerun
+# ---------------------------
+# Safe rerun at end
+# ---------------------------
 if st.session_state.rerun_flag:
     safe_rerun()
+
