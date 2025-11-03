@@ -1,11 +1,11 @@
 # ultimate_coaching_dashboard.py
-# BigC's Coaching - Complete web-based dashboard
+# BigC's Coaching - Complete web-based dashboard with filters
 # Packages: streamlit, pandas, matplotlib, gspread, gspread-dataframe, oauth2client, python-dateutil
 
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import os, json
 from dateutil import parser
 
@@ -150,9 +150,6 @@ with st.sidebar:
             else:
                 st.error("Invalid credentials")
 
-# Remove st.stop() to allow UI render
-# st.stop()
-
 st.write("Current role:", st.session_state.role)
 st.write("Current user:", st.session_state.user)
 
@@ -192,6 +189,27 @@ if st.session_state.rerun_flag:
     safe_rerun()
 
 # ---------------------------
+# Filter function
+# ---------------------------
+def apply_filters(entries, start_date=None, end_date=None, workout=None):
+    filtered = []
+    for e in entries:
+        ts = e.get("Timestamp") or e.get("Date") or e.get("WeekStartDate")
+        if ts:
+            try:
+                e_date = parser.parse(ts).date()
+                if start_date and e_date < start_date:
+                    continue
+                if end_date and e_date > end_date:
+                    continue
+            except:
+                pass
+        if workout and e.get("Workout") and workout!="All" and e.get("Workout")!=workout:
+            continue
+        filtered.append(e)
+    return filtered
+
+# ---------------------------
 # Dashboards
 # ---------------------------
 # Admin
@@ -221,77 +239,89 @@ elif st.session_state.role=="coach":
         selected_client = st.selectbox("Select client", client_names)
         client_username = next(c["Username"] for c in clients if c["Name"]==selected_client)
         data = get_client_data(client_username)
+
+        # Filters
+        st.subheader("Filters")
+        min_date = st.date_input("Start Date", date.today()-timedelta(days=30))
+        max_date = st.date_input("End Date", date.today())
+        workouts_list = list(set([w["Workout"] for w in data["workouts"]])) if data["workouts"] else []
+        selected_workout = st.selectbox("Workout Filter", ["All"] + workouts_list)
+
+        filtered_workouts = apply_filters(data["workouts"], min_date, max_date, selected_workout)
+        filtered_nutrition = apply_filters(data["nutrition"], min_date, max_date)
+        filtered_progress = apply_filters(data["progress"], min_date, max_date)
+        filtered_checkins = apply_filters(data["checkins"], min_date, max_date)
+
         tab_w, tab_n, tab_p, tab_c = st.tabs(["🏋️ Workouts","🍎 Nutrition","📈 Progress","📋 Weekly Check-In"])
 
         with tab_w:
             st.subheader("Workouts")
-            with st.form("workout_form"):
-                workout_name = st.text_input("Workout name")
-                workout_details = st.text_area("Details")
-                if st.form_submit_button("Save Workout"):
-                    ts = datetime.utcnow().isoformat()
-                    append_row(gsh,"workouts",[client_username, workout_name, workout_details, ts])
-                    st.success("Workout saved")
-                    st.session_state.rerun_flag=True
+            if filtered_workouts:
+                st.dataframe(pd.DataFrame(filtered_workouts))
+            else: st.info("No workouts for selected filters")
 
         with tab_n:
             st.subheader("Nutrition")
-            with st.form("nutrition_form"):
-                cals = st.number_input("Calories",0)
-                prot = st.number_input("Protein",0)
-                carbs = st.number_input("Carbs",0)
-                fats = st.number_input("Fats",0)
-                if st.form_submit_button("Save Nutrition"):
-                    ts = datetime.utcnow().isoformat()
-                    append_row(gsh,"nutrition",[client_username,cals,prot,carbs,fats,ts])
-                    st.success("Nutrition saved")
-                    st.session_state.rerun_flag=True
+            if filtered_nutrition:
+                st.dataframe(pd.DataFrame(filtered_nutrition))
+            else: st.info("No nutrition for selected filters")
 
         with tab_p:
             st.subheader("Progress")
-            with st.form("progress_form"):
-                pdate = st.date_input("Date")
-                pweight = st.number_input("Weight",0.0)
-                pnotes = st.text_area("Notes")
-                if st.form_submit_button("Save Progress"):
-                    ts = datetime.utcnow().isoformat()
-                    append_row(gsh,"progress",[client_username,str(pdate),pweight,pnotes,ts])
-                    st.success("Progress saved")
-                    st.session_state.rerun_flag=True
+            if filtered_progress:
+                df_prog = pd.DataFrame(filtered_progress)
+                st.dataframe(df_prog)
+                if "Weight" in df_prog.columns and "Date" in df_prog.columns:
+                    try: st.line_chart(df_prog.set_index("Date")["Weight"])
+                    except: pass
+            else: st.info("No progress for selected filters")
 
         with tab_c:
             st.subheader("Weekly Check-In")
-            if data["checkins"]:
-                st.dataframe(pd.DataFrame(data["checkins"]))
+            if filtered_checkins:
+                st.dataframe(pd.DataFrame(filtered_checkins))
 
 # Client
 elif st.session_state.role=="client":
     client_user = st.session_state.user
     st.header(f"Welcome {client_user} 👋")
     data = get_client_data(client_user)
+
+    # Filters
+    st.subheader("Filters")
+    min_date = st.date_input("Start Date", date.today()-timedelta(days=30))
+    max_date = st.date_input("End Date", date.today())
+    workouts_list = list(set([w["Workout"] for w in data["workouts"]])) if data["workouts"] else []
+    selected_workout = st.selectbox("Workout Filter", ["All"] + workouts_list)
+
+    filtered_workouts = apply_filters(data["workouts"], min_date, max_date, selected_workout)
+    filtered_nutrition = apply_filters(data["nutrition"], min_date, max_date)
+    filtered_progress = apply_filters(data["progress"], min_date, max_date)
+    filtered_checkins = apply_filters(data["checkins"], min_date, max_date)
+
     tab_w, tab_n, tab_p, tab_c = st.tabs(["🏋️ Workouts","🍎 Nutrition","📈 Progress","📋 Weekly Check-In"])
 
     with tab_w:
         st.subheader("Workouts")
-        if data["workouts"]:
-            st.dataframe(pd.DataFrame(data["workouts"]))
-        else: st.info("No workouts yet")
+        if filtered_workouts:
+            st.dataframe(pd.DataFrame(filtered_workouts))
+        else: st.info("No workouts for selected filters")
 
     with tab_n:
         st.subheader("Nutrition")
-        if data["nutrition"]:
-            st.dataframe(pd.DataFrame(data["nutrition"]))
-        else: st.info("No nutrition logged yet")
+        if filtered_nutrition:
+            st.dataframe(pd.DataFrame(filtered_nutrition))
+        else: st.info("No nutrition for selected filters")
 
     with tab_p:
         st.subheader("Progress")
-        if data["progress"]:
-            pdf = pd.DataFrame(data["progress"])
-            st.dataframe(pdf)
-            if "Weight" in pdf.columns and "Date" in pdf.columns:
-                try: st.line_chart(pdf.set_index("Date")["Weight"])
+        if filtered_progress:
+            df_prog = pd.DataFrame(filtered_progress)
+            st.dataframe(df_prog)
+            if "Weight" in df_prog.columns and "Date" in df_prog.columns:
+                try: st.line_chart(df_prog.set_index("Date")["Weight"])
                 except: pass
-        else: st.info("No progress logged yet")
+        else: st.info("No progress for selected filters")
 
     with tab_c:
         st.subheader("Weekly Check-In")
@@ -303,9 +333,9 @@ elif st.session_state.role=="client":
                 append_row(gsh,"checkins",[client_user,str(week_start),feedback,"Submitted",ts])
                 st.success("Check-in submitted!")
                 st.session_state.rerun_flag = True
-        if data["checkins"]:
-            st.dataframe(pd.DataFrame(data["checkins"]))
+        if filtered_checkins:
+            st.dataframe(pd.DataFrame(filtered_checkins))
 
-# Handle safe rerun
+# Safe rerun
 if st.session_state.rerun_flag:
     safe_rerun()
