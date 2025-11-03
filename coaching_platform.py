@@ -2,127 +2,160 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Coaching Platform", layout="wide")
+# --- Page Setup ---
+st.set_page_config(page_title="BigC's Coaching", page_icon="💪", layout="wide")
 
-# ---------- INITIALISE STATE ----------
-if "clients" not in st.session_state:
-    st.session_state.clients = {}
+# --- Custom Styling ---
+st.markdown("""
+    <style>
+        /* Main background */
+        .stApp {
+            background-color: #0e1117;
+            color: white;
+        }
 
-# ---------- SIDEBAR ----------
-st.sidebar.title("🏋️ Coaching Platform")
-page = st.sidebar.radio("Navigation", ["🏠 Home", "🧑‍💼 Clients"])
+        /* Sidebar */
+        section[data-testid="stSidebar"] {
+            background-color: #111827;
+        }
 
-# ---------- HOME ----------
+        /* Titles and text */
+        h1, h2, h3, h4 {
+            color: #2E86C1 !important;
+            font-weight: 800;
+        }
+
+        p, li, div, label {
+            color: #d1d5db !important;
+        }
+
+        /* Buttons */
+        button[kind="primary"] {
+            background-color: #2E86C1 !important;
+            color: white !important;
+            border-radius: 10px !important;
+            font-weight: bold;
+        }
+
+        /* Centered main title */
+        .main-title {
+            text-align: center;
+            font-size: 60px;
+            color: #2E86C1;
+            font-weight: 900;
+            margin-bottom: 0;
+        }
+
+        .subtitle {
+            text-align: center;
+            font-size: 20px;
+            color: #888;
+            margin-top: 5px;
+            margin-bottom: 40px;
+        }
+
+        .info-box {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- Sidebar Navigation ---
+page = st.sidebar.radio("Navigation", ["🏠 Home", "👥 Clients", "📊 Progress Tracker", "🍎 Nutrition Log"])
+
+# --- HOME PAGE ---
 if page == "🏠 Home":
-    st.title("Welcome to your Coaching Dashboard")
-    st.write("Use this app to manage your clients, track workouts, nutrition, and progress — all in one place.")
-    st.info("Go to the 'Clients' page in the sidebar to get started.")
+    st.markdown("<h1 class='main-title'>BigC's Coaching</h1>", unsafe_allow_html=True)
+    st.markdown("<p class='subtitle'>@callumjules</p>", unsafe_allow_html=True)
 
-# ---------- CLIENT MANAGEMENT ----------
-elif page == "🧑‍💼 Clients":
-    st.title("Client Management")
+    st.markdown("""
+    <div class='info-box'>
+    <h3>Welcome!</h3>
+    <p>This platform helps you manage your clients, track workouts, monitor nutrition, and visualize progress — all in one place.</p>
+    <p>Use the sidebar to access different sections of your coaching dashboard.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # --- Add New Client ---
-    with st.form("add_client"):
+# --- CLIENT MANAGEMENT ---
+elif page == "👥 Clients":
+    st.header("Client Management")
+    st.write("Add and manage your coaching clients below:")
+
+    if "clients" not in st.session_state:
+        st.session_state.clients = []
+
+    with st.form("add_client_form"):
         name = st.text_input("Client Name")
-        goal = st.text_input("Primary Goal")
+        goal = st.text_input("Client Goal")
         submitted = st.form_submit_button("Add Client")
+
         if submitted and name:
-            if name not in st.session_state.clients:
-                st.session_state.clients[name] = {
-                    "goal": goal,
-                    "workouts": [],
-                    "nutrition": [],
-                    "progress": []
-                }
-                st.success(f"Added client {name}")
-            else:
-                st.warning("Client already exists!")
+            st.session_state.clients.append({"name": name, "goal": goal})
+            st.success(f"✅ Added {name} successfully!")
 
-    # --- Select Client ---
     if st.session_state.clients:
-        st.subheader("Select a Client")
-        selected_client = st.selectbox(
-            "Choose a client to view dashboard",
-            list(st.session_state.clients.keys())
-        )
+        st.subheader("Your Clients:")
+        for i, client in enumerate(st.session_state.clients):
+            with st.expander(f"{client['name']} — {client['goal']}"):
+                st.write(f"**Goal:** {client['goal']}")
+                st.write("💪 Workout Plan:")
+                st.text_area(f"Workout notes for {client['name']}", key=f"workout_{i}")
+                st.write("🥗 Nutrition Plan:")
+                st.text_area(f"Nutrition notes for {client['name']}", key=f"nutrition_{i}")
+                st.write("📈 Progress:")
+                st.slider(f"Progress (%) for {client['name']}", 0, 100, 50, key=f"progress_{i}")
 
-        client_data = st.session_state.clients[selected_client]
-        st.markdown(f"### 🧑 {selected_client}")
-        st.caption(f"Goal: {client_data['goal']}")
+# --- PROGRESS TRACKER ---
+elif page == "📊 Progress Tracker":
+    st.header("Client Progress Tracker")
 
-        # Tabs inside the client's page
-        tab1, tab2, tab3 = st.tabs(["🏋️ Workouts", "🍎 Nutrition", "📊 Progress"])
+    st.write("Use this section to visualize progress across clients.")
+    if "clients" in st.session_state and st.session_state.clients:
+        data = {
+            client["name"]: st.session_state.get(f"progress_{i}", 0)
+            for i, client in enumerate(st.session_state.clients)
+        }
+        df = pd.DataFrame(list(data.items()), columns=["Client", "Progress"])
 
-        # ---------- WORKOUTS ----------
-        with tab1:
-            st.subheader("Workout Plan")
-
-            with st.form(f"workout_form_{selected_client}"):
-                exercise = st.text_input("Exercise")
-                sets = st.number_input("Sets", 1, 10, 3)
-                reps = st.number_input("Reps", 1, 20, 10)
-                weight = st.number_input("Weight (kg)", 0, 500, 60)
-                add_workout = st.form_submit_button("Add Exercise")
-
-                if add_workout and exercise:
-                    client_data["workouts"].append({
-                        "exercise": exercise,
-                        "sets": sets,
-                        "reps": reps,
-                        "weight": weight
-                    })
-                    st.success(f"Added {exercise}")
-
-            if client_data["workouts"]:
-                df = pd.DataFrame(client_data["workouts"])
-                st.table(df)
-
-        # ---------- NUTRITION ----------
-        with tab2:
-            st.subheader("Nutrition Plan")
-
-            with st.form(f"nutrition_form_{selected_client}"):
-                meal = st.text_input("Meal / Food")
-                calories = st.number_input("Calories", 0, 2000, 400)
-                protein = st.number_input("Protein (g)", 0, 200, 20)
-                carbs = st.number_input("Carbs (g)", 0, 200, 40)
-                fats = st.number_input("Fats (g)", 0, 100, 10)
-                add_meal = st.form_submit_button("Add Meal")
-
-                if add_meal and meal:
-                    client_data["nutrition"].append({
-                        "meal": meal,
-                        "calories": calories,
-                        "protein": protein,
-                        "carbs": carbs,
-                        "fats": fats
-                    })
-                    st.success(f"Added {meal}")
-
-            if client_data["nutrition"]:
-                df = pd.DataFrame(client_data["nutrition"])
-                st.table(df)
-                st.metric("Total Calories", f"{df['calories'].sum()} kcal")
-
-        # ---------- PROGRESS ----------
-        with tab3:
-            st.subheader("Progress Tracking")
-
-            with st.form(f"progress_form_{selected_client}"):
-                date = st.date_input("Date")
-                weight = st.number_input("Weight (kg)", 0, 300, 70)
-                add_progress = st.form_submit_button("Add Progress")
-
-                if add_progress:
-                    client_data["progress"].append({"date": date, "weight": weight})
-                    st.success("Progress added!")
-
-            if client_data["progress"]:
-                df = pd.DataFrame(client_data["progress"])
-                if not df.empty:
-                    st.line_chart(df.set_index("date")["weight"])
-                    st.table(df)
-
+        fig, ax = plt.subplots()
+        ax.bar(df["Client"], df["Progress"])
+        ax.set_xlabel("Clients")
+        ax.set_ylabel("Progress (%)")
+        ax.set_title("Client Progress Overview")
+        st.pyplot(fig)
     else:
-        st.info("No clients yet — add one using the form above.")
+        st.info("Add clients in the 'Clients' tab first.")
+
+# --- NUTRITION LOG ---
+elif page == "🍎 Nutrition Log":
+    st.header("Nutrition Log")
+    st.write("Track your clients' nutrition plans here.")
+
+    if "nutrition_log" not in st.session_state:
+        st.session_state.nutrition_log = []
+
+    with st.form("nutrition_form"):
+        client_name = st.text_input("Client Name")
+        calories = st.number_input("Calories", 0)
+        protein = st.number_input("Protein (g)", 0)
+        carbs = st.number_input("Carbs (g)", 0)
+        fats = st.number_input("Fats (g)", 0)
+        submitted = st.form_submit_button("Save Entry")
+
+        if submitted and client_name:
+            st.session_state.nutrition_log.append({
+                "Client": client_name,
+                "Calories": calories,
+                "Protein": protein,
+                "Carbs": carbs,
+                "Fats": fats
+            })
+            st.success(f"Nutrition entry saved for {client_name}!")
+
+    if st.session_state.nutrition_log:
+        st.subheader("Saved Nutrition Entries")
+        df = pd.DataFrame(st.session_state.nutrition_log)
+        st.dataframe(df)
